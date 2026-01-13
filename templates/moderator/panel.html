@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Moderator Panel - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1>Moderator Panel</h1>
+        <p class="text-muted">Tools and features for moderators.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Your Permissions</h5>
+            </div>
+            <div class="card-body">
+                <p>As a moderator, you have access to:</p>
+                <ul>
+                    <li>View user activity</li>
+                    <li>Moderate content</li>
+                    <li>Access moderator tools</li>
+                </ul>
+                <p class="text-muted mb-0">
+                    Your roles:
+                    {% for role in current_user.roles %}
+                        <span class="badge bg-primary">{{ role.name }}</span>
+                    {% endfor %}
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-primary" disabled>View Reports (Coming Soon)</button>
+                    <button class="btn btn-outline-primary" disabled>Content Moderation (Coming Soon)</button>
+                    <button class="btn btn-outline-primary" disabled>Activity Log (Coming Soon)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

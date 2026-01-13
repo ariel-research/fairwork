@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Login - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">Login</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('security.login') }}" novalidate>
+                    {{ login_user_form.hidden_tag() }}
+
+                    <div class="mb-3">
+                        {{ login_user_form.email.label(class="form-label") }}
+                        {{ login_user_form.email(class="form-control" + (" is-invalid" if login_user_form.email.errors else ""), placeholder="Enter your email") }}
+                        {% for error in login_user_form.email.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        {{ login_user_form.password.label(class="form-label") }}
+                        {{ login_user_form.password(class="form-control" + (" is-invalid" if login_user_form.password.errors else ""), placeholder="Enter your password") }}
+                        {% for error in login_user_form.password.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        {{ login_user_form.remember(class="form-check-input") }}
+                        {{ login_user_form.remember.label(class="form-check-label") }}
+                    </div>
+
+                    <div class="d-grid">
+                        {{ login_user_form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+
+                <hr>
+                <p class="text-center mb-0">
+                    Don't have an account? <a href="{{ url_for('security.register') }}">Register here</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

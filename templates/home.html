@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto text-center">
+        <h1 class="display-4">Fair Division Algorithms</h1>
+        <p class="lead mt-3">
+            Explore and demonstrate fair division algorithms for allocating items among agents.
+        </p>
+        <hr class="my-4">
+
+        {% if current_user.is_authenticated %}
+            <p>Welcome back, <strong>{{ current_user.username }}</strong>!</p>
+            <p>You can now access the fair division algorithms demo.</p>
+            {% if current_user.has_role('admin') %}
+                <div class="alert alert-info">
+                    <strong>Admin:</strong> You have administrator access.
+                    <a href="{{ url_for('admin_dashboard') }}" class="alert-link">Go to Admin Dashboard</a>
+                </div>
+            {% endif %}
+            <a class="btn btn-primary btn-lg" href="#" role="button">Start Demo</a>
+        {% else %}
+            <p>Sign in or create an account to get started.</p>
+            <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                <a class="btn btn-primary btn-lg" href="{{ url_for('security.login') }}" role="button">Login</a>
+                <a class="btn btn-outline-primary btn-lg" href="{{ url_for('security.register') }}" role="button">Register</a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row mt-5">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Item Allocation</h5>
+                <p class="card-text">Divide items among agents based on their preferences and rankings.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Capacity Constraints</h5>
+                <p class="card-text">Each item and agent has capacity limits for realistic allocation scenarios.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Fair Algorithms</h5>
+                <p class="card-text">Explore various fair division algorithms and compare their outcomes.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

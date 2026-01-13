@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Register - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">Create Account</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('security.register') }}" novalidate>
+                    {{ register_user_form.hidden_tag() }}
+
+                    <div class="mb-3">
+                        {{ register_user_form.username.label(class="form-label") }}
+                        {{ register_user_form.username(class="form-control" + (" is-invalid" if register_user_form.username.errors else ""), placeholder="Choose a username") }}
+                        {% for error in register_user_form.username.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        {{ register_user_form.email.label(class="form-label") }}
+                        {{ register_user_form.email(class="form-control" + (" is-invalid" if register_user_form.email.errors else ""), placeholder="Enter your email") }}
+                        {% for error in register_user_form.email.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        {{ register_user_form.password.label(class="form-label") }}
+                        {{ register_user_form.password(class="form-control" + (" is-invalid" if register_user_form.password.errors else ""), placeholder="Create a password") }}
+                        {% for error in register_user_form.password.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mb-3">
+                        {{ register_user_form.password_confirm.label(class="form-label") }}
+                        {{ register_user_form.password_confirm(class="form-control" + (" is-invalid" if register_user_form.password_confirm.errors else ""), placeholder="Confirm your password") }}
+                        {% for error in register_user_form.password_confirm.errors %}
+                            <div class="invalid-feedback">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-grid">
+                        {{ register_user_form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+
+                <hr>
+                <p class="text-center mb-0">
+                    Already have an account? <a href="{{ url_for('security.login') }}">Login here</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
