@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}My Surveys - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>My Surveys</h1>
+    <a href="{{ url_for('survey_create') }}" class="btn btn-primary">Create New Survey</a>
+</div>
+
+{% if surveys %}
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Ranking Mode</th>
+                <th>Items</th>
+                <th>Participants</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for survey in surveys %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('survey_edit', survey_id=survey.id) }}">{{ survey.title }}</a>
+                </td>
+                <td>
+                    {% if survey.ranking_mode == 'ordinal' %}
+                        <span class="badge bg-info">Ordinal</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Points</span>
+                    {% endif %}
+                </td>
+                <td>{{ survey.items.count() }}</td>
+                <td>{{ survey.participants.count() }}</td>
+                <td>
+                    {% if survey.is_open %}
+                        <span class="badge bg-success">Open</span>
+                    {% else %}
+                        <span class="badge bg-danger">Closed</span>
+                    {% endif %}
+                </td>
+                <td>{{ survey.created_at.strftime('%Y-%m-%d') }}</td>
+                <td>
+                    <a href="{{ url_for('survey_edit', survey_id=survey.id) }}" class="btn btn-sm btn-outline-primary">Manage</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">
+    You haven't created any surveys yet. <a href="{{ url_for('survey_create') }}">Create your first survey</a>.
+</div>
+{% endif %}
+{% endblock %}

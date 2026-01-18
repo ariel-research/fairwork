@@ -1,10 +1,12 @@
-from flask import Flask, render_template, redirect, url_for, flash, request, abort
+from flask import Flask, render_template, redirect, url_for, flash, request, abort, session, jsonify
 from flask_security import Security, SQLAlchemyUserDatastore, current_user, auth_required, roles_required, roles_accepted, hash_password
 from flask_wtf.csrf import CSRFProtect
 from config import Config
-from models import db, User, Role
+from models import db, User, Role, Survey, SurveyItem, SurveyParticipant, ItemRanking, AllocationResult
 from forms import ExtendedRegisterForm
 import uuid
+import json
+import random
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -145,7 +147,618 @@ def delete_user(user_id):
 @roles_accepted('admin', 'moderator')
 def moderator_panel():
     """Moderator panel - accessible by admins and moderators."""
-    return render_template('moderator/panel.html')
+    surveys = Survey.query.filter_by(creator_id=current_user.id).all()
+    return render_template('moderator/panel.html', surveys=surveys)
+
+
+# ==================== SURVEY ROUTES ====================
+
+@app.route('/surveys')
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_list():
+    """List all surveys created by the current moderator."""
+    surveys = Survey.query.filter_by(creator_id=current_user.id).all()
+    return render_template('survey/list.html', surveys=surveys)
+
+
+@app.route('/surveys/create', methods=['GET', 'POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_create():
+    """Create a new survey."""
+    if request.method == 'POST':
+        title = request.form.get('title')
+        description = request.form.get('description')
+        ranking_mode = request.form.get('ranking_mode', 'ordinal')
+        total_points = request.form.get('total_points', 100, type=int)
+        min_score = request.form.get('min_score', 1, type=int)
+        max_score = request.form.get('max_score', 10, type=int)
+        use_weights = request.form.get('use_weights') == 'on'
+        require_user_capacity = request.form.get('require_user_capacity') == 'on'
+
+        if not title:
+            flash('Survey title is required.', 'danger')
+            return render_template('survey/create.html')
+
+        survey = Survey(
+            title=title,
+            description=description,
+            creator_id=current_user.id,
+            ranking_mode=ranking_mode,
+            total_points=total_points,
+            min_score=min_score,
+            max_score=max_score,
+            use_weights=use_weights,
+            require_user_capacity=require_user_capacity
+        )
+        db.session.add(survey)
+        db.session.commit()
+
+        flash(f'Survey "{title}" created successfully!', 'success')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    return render_template('survey/create.html')
+
+
+@app.route('/surveys/<int:survey_id>')
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_edit(survey_id):
+    """Edit survey details, manage items and participants."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    users = User.query.all()
+    return render_template('survey/edit.html', survey=survey, users=users)
+
+
+@app.route('/surveys/<int:survey_id>/update', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_update(survey_id):
+    """Update survey settings."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    survey.title = request.form.get('title', survey.title)
+    survey.description = request.form.get('description', survey.description)
+    survey.ranking_mode = request.form.get('ranking_mode', survey.ranking_mode)
+    survey.total_points = request.form.get('total_points', survey.total_points, type=int)
+    survey.min_score = request.form.get('min_score', survey.min_score, type=int)
+    survey.max_score = request.form.get('max_score', survey.max_score, type=int)
+    survey.use_weights = request.form.get('use_weights') == 'on'
+    survey.require_user_capacity = request.form.get('require_user_capacity') == 'on'
+
+    db.session.commit()
+    flash('Survey updated successfully!', 'success')
+    return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+@app.route('/surveys/<int:survey_id>/toggle', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_toggle(survey_id):
+    """Toggle survey open/closed status."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    survey.is_open = not survey.is_open
+    db.session.commit()
+
+    status = 'opened' if survey.is_open else 'closed'
+    flash(f'Survey has been {status}.', 'success')
+    return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+@app.route('/surveys/<int:survey_id>/delete', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_delete(survey_id):
+    """Delete a survey."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    title = survey.title
+    db.session.delete(survey)
+    db.session.commit()
+
+    flash(f'Survey "{title}" has been deleted.', 'success')
+    return redirect(url_for('survey_list'))
+
+
+# ==================== SURVEY ITEMS ====================
+
+@app.route('/surveys/<int:survey_id>/items/add', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_add_item(survey_id):
+    """Add an item to the survey."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    name = request.form.get('name')
+    description = request.form.get('description')
+    capacity = request.form.get('capacity', 1, type=int)
+    weight = request.form.get('weight', 1.0, type=float)
+
+    if not name:
+        flash('Item name is required.', 'danger')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    item = SurveyItem(
+        survey_id=survey.id,
+        name=name,
+        description=description,
+        capacity=capacity,
+        weight=weight
+    )
+    db.session.add(item)
+    db.session.commit()
+
+    flash(f'Item "{name}" added to survey.', 'success')
+    return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+@app.route('/surveys/<int:survey_id>/items/<int:item_id>/delete', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_delete_item(survey_id, item_id):
+    """Delete an item from the survey."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    item = SurveyItem.query.get_or_404(item_id)
+    if item.survey_id != survey.id:
+        abort(404)
+
+    name = item.name
+    db.session.delete(item)
+    db.session.commit()
+
+    flash(f'Item "{name}" has been removed.', 'success')
+    return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+# ==================== SURVEY PARTICIPANTS ====================
+
+@app.route('/surveys/<int:survey_id>/participants/add', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_add_participant(survey_id):
+    """Add an existing user to the survey."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    user_id = request.form.get('user_id', type=int)
+    user = User.query.get_or_404(user_id)
+
+    # Check if already a participant
+    existing = SurveyParticipant.query.filter_by(survey_id=survey.id, user_id=user.id).first()
+    if existing:
+        flash(f'{user.username} is already a participant.', 'info')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    participant = SurveyParticipant(survey_id=survey.id, user_id=user.id)
+    db.session.add(participant)
+    db.session.commit()
+
+    flash(f'{user.username} has been added to the survey.', 'success')
+    return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+@app.route('/surveys/<int:survey_id>/participants/<int:participant_id>/remove', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_remove_participant(survey_id, participant_id):
+    """Remove a participant from the survey."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    participant = SurveyParticipant.query.get_or_404(participant_id)
+    if participant.survey_id != survey.id:
+        abort(404)
+
+    name = participant.get_display_name()
+    db.session.delete(participant)
+    db.session.commit()
+
+    flash(f'{name} has been removed from the survey.', 'success')
+    return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+# ==================== DUMMY USERS ====================
+
+@app.route('/surveys/<int:survey_id>/dummy-users/add', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_add_dummy_users(survey_id):
+    """Add dummy users with random preferences to the survey."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    count = request.form.get('count', 1, type=int)
+    if count < 1 or count > 100:
+        flash('Please enter a number between 1 and 100.', 'danger')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    items = survey.items.all()
+    if not items:
+        flash('Please add items to the survey before adding dummy users.', 'danger')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    # Find the next dummy user number
+    existing_dummies = SurveyParticipant.query.filter_by(survey_id=survey.id, is_dummy=True).count()
+
+    for i in range(count):
+        dummy_name = f'Dummy User {existing_dummies + i + 1}'
+        participant = SurveyParticipant(
+            survey_id=survey.id,
+            is_dummy=True,
+            dummy_name=dummy_name
+        )
+        db.session.add(participant)
+        db.session.flush()  # Get the participant ID
+
+        # Generate random preferences based on ranking mode
+        if survey.ranking_mode == 'ordinal':
+            # Random ordinal rankings (1 to n)
+            ranks = list(range(1, len(items) + 1))
+            random.shuffle(ranks)
+            for item, rank in zip(items, ranks):
+                ranking = ItemRanking(
+                    participant_id=participant.id,
+                    item_id=item.id,
+                    rank=rank
+                )
+                db.session.add(ranking)
+        elif survey.ranking_mode == 'budget':
+            # Random point distribution
+            remaining = survey.total_points
+            points_list = []
+            for j in range(len(items) - 1):
+                # Assign random portion of remaining points
+                pts = random.randint(0, remaining)
+                points_list.append(pts)
+                remaining -= pts
+            points_list.append(remaining)  # Last item gets remaining
+            random.shuffle(points_list)
+            for item, pts in zip(items, points_list):
+                ranking = ItemRanking(
+                    participant_id=participant.id,
+                    item_id=item.id,
+                    points=pts
+                )
+                db.session.add(ranking)
+        else:
+            # Rating mode: random score for each item
+            for item in items:
+                rating = random.randint(survey.min_score, survey.max_score)
+                ranking = ItemRanking(
+                    participant_id=participant.id,
+                    item_id=item.id,
+                    rating=rating
+                )
+                db.session.add(ranking)
+
+    db.session.commit()
+    flash(f'{count} dummy user(s) added with random preferences.', 'success')
+    return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+# ==================== ALGORITHM EXECUTION ====================
+
+def survey_to_fairpyx_valuations(survey):
+    """Convert survey data to fairpyx-compatible valuations format."""
+    participants = survey.participants.all()
+    items = survey.items.all()
+
+    valuations = {}
+    for p in participants:
+        name = p.get_display_name()
+        valuations[name] = {}
+        for ranking in p.rankings.all():
+            item_name = ranking.item.name
+            if survey.ranking_mode == 'ordinal':
+                # Convert rank to value (higher rank = higher value)
+                value = len(items) - ranking.rank + 1
+            elif survey.ranking_mode in ('budget', 'points'):
+                value = ranking.points
+            else:  # rating
+                value = ranking.rating
+            valuations[name][item_name] = value
+
+    return valuations
+
+
+def get_item_capacities(survey):
+    """Get item capacities as a dict."""
+    return {item.name: item.capacity for item in survey.items.all()}
+
+
+@app.route('/surveys/<int:survey_id>/run-algorithm', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_run_algorithm(survey_id):
+    """Run a fairpyx algorithm on the survey data."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    algorithm = request.form.get('algorithm')
+    if not algorithm:
+        flash('Please select an algorithm.', 'danger')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    # Check if there are participants with rankings
+    participants_with_rankings = [p for p in survey.participants.all() if p.rankings.count() > 0]
+    if not participants_with_rankings:
+        flash('No participants have submitted rankings yet.', 'danger')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    items = survey.items.all()
+    if not items:
+        flash('No items in the survey.', 'danger')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+    try:
+        from fairpyx import Instance, AllocationBuilder, divide
+
+        valuations = survey_to_fairpyx_valuations(survey)
+        item_capacities = get_item_capacities(survey)
+
+        # Create fairpyx instance
+        instance = Instance(valuations=valuations, item_capacities=item_capacities)
+
+        # Run the selected algorithm
+        if algorithm == 'round_robin':
+            from fairpyx.algorithms.picking_sequence import round_robin
+            allocation = divide(round_robin, instance)
+        elif algorithm == 'bidirectional_round_robin':
+            from fairpyx.algorithms.picking_sequence import bidirectional_round_robin
+            allocation = divide(bidirectional_round_robin, instance)
+        elif algorithm == 'iterated_maximum_matching':
+            from fairpyx.algorithms.iterated_maximum_matching import iterated_maximum_matching
+            allocation = divide(iterated_maximum_matching, instance)
+        elif algorithm == 'utilitarian_matching':
+            from fairpyx.algorithms.utilitarian_matching import utilitarian_matching
+            allocation = divide(utilitarian_matching, instance)
+        elif algorithm == 'serial_dictatorship':
+            from fairpyx.algorithms.picking_sequence import serial_dictatorship
+            allocation = divide(serial_dictatorship, instance)
+        else:
+            flash(f'Unknown algorithm: {algorithm}', 'danger')
+            return redirect(url_for('survey_edit', survey_id=survey.id))
+
+        # Convert allocation to JSON-serializable format
+        result_data = {
+            'allocation': dict(allocation),
+            'algorithm': algorithm,
+            'participants': [p.get_display_name() for p in participants_with_rankings],
+            'items': [item.name for item in items]
+        }
+
+        # Save result
+        result = AllocationResult(
+            survey_id=survey.id,
+            algorithm=algorithm,
+            result_json=json.dumps(result_data)
+        )
+        db.session.add(result)
+        db.session.commit()
+
+        flash(f'Algorithm "{algorithm}" completed successfully!', 'success')
+        return redirect(url_for('survey_results', survey_id=survey.id))
+
+    except Exception as e:
+        flash(f'Error running algorithm: {str(e)}', 'danger')
+        return redirect(url_for('survey_edit', survey_id=survey.id))
+
+
+@app.route('/surveys/<int:survey_id>/results')
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_results(survey_id):
+    """View allocation results for a survey."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    results = survey.allocation_results.order_by(AllocationResult.created_at.desc()).all()
+    # Parse JSON for each result
+    parsed_results = []
+    for r in results:
+        parsed_results.append({
+            'id': r.id,
+            'algorithm': r.algorithm,
+            'created_at': r.created_at,
+            'data': json.loads(r.result_json) if r.result_json else {}
+        })
+
+    return render_template('survey/results.html', survey=survey, results=parsed_results)
+
+
+@app.route('/surveys/<int:survey_id>/results/<int:result_id>/delete', methods=['POST'])
+@auth_required()
+@roles_accepted('admin', 'moderator')
+def survey_delete_result(survey_id, result_id):
+    """Delete an allocation result."""
+    survey = Survey.query.get_or_404(survey_id)
+    if survey.creator_id != current_user.id and not current_user.has_role('admin'):
+        abort(403)
+
+    result = AllocationResult.query.get_or_404(result_id)
+    if result.survey_id != survey.id:
+        abort(404)
+
+    db.session.delete(result)
+    db.session.commit()
+
+    flash('Result deleted.', 'success')
+    return redirect(url_for('survey_results', survey_id=survey.id))
+
+
+# ==================== INVITE LINK ====================
+
+@app.route('/join/<invite_code>')
+def survey_join(invite_code):
+    """Join a survey via invite link."""
+    survey = Survey.query.filter_by(invite_code=invite_code).first_or_404()
+
+    if not current_user.is_authenticated:
+        # Store the invite code in session and redirect to login
+        session['pending_survey_invite'] = invite_code
+        flash('Please log in or register to join this survey.', 'info')
+        return redirect(url_for('security.login'))
+
+    # Check if already a participant
+    existing = SurveyParticipant.query.filter_by(survey_id=survey.id, user_id=current_user.id).first()
+    if existing:
+        flash('You are already a participant in this survey.', 'info')
+        return redirect(url_for('survey_rank', survey_id=survey.id))
+
+    # Add as participant
+    participant = SurveyParticipant(survey_id=survey.id, user_id=current_user.id)
+    db.session.add(participant)
+    db.session.commit()
+
+    flash(f'You have joined the survey "{survey.title}"!', 'success')
+    return redirect(url_for('survey_rank', survey_id=survey.id))
+
+
+@app.after_request
+def check_pending_invite(response):
+    """Check if user has a pending survey invite after login."""
+    if current_user.is_authenticated and 'pending_survey_invite' in session:
+        invite_code = session.pop('pending_survey_invite')
+        # We can't redirect here, but we can flash a message
+        # The user will need to click the link again or we handle it in a before_request
+    return response
+
+
+@app.before_request
+def process_pending_invite():
+    """Process pending survey invite after login."""
+    if current_user.is_authenticated and 'pending_survey_invite' in session:
+        invite_code = session.pop('pending_survey_invite')
+        survey = Survey.query.filter_by(invite_code=invite_code).first()
+        if survey:
+            existing = SurveyParticipant.query.filter_by(survey_id=survey.id, user_id=current_user.id).first()
+            if not existing:
+                participant = SurveyParticipant(survey_id=survey.id, user_id=current_user.id)
+                db.session.add(participant)
+                db.session.commit()
+                flash(f'You have been added to the survey "{survey.title}"!', 'success')
+
+
+# ==================== RANKING INTERFACE ====================
+
+@app.route('/surveys/<int:survey_id>/rank', methods=['GET', 'POST'])
+@auth_required()
+def survey_rank(survey_id):
+    """Participant ranking interface."""
+    survey = Survey.query.get_or_404(survey_id)
+
+    # Check if user is a participant
+    participant = SurveyParticipant.query.filter_by(survey_id=survey.id, user_id=current_user.id).first()
+    if not participant:
+        flash('You are not a participant in this survey.', 'danger')
+        return redirect(url_for('my_surveys'))
+
+    if request.method == 'POST':
+        if not survey.is_open:
+            flash('This survey is closed for changes.', 'danger')
+            return redirect(url_for('survey_rank', survey_id=survey.id))
+
+        # Process user weight (credit points) if weights are enabled
+        if survey.use_weights:
+            user_weight = request.form.get('user_weight', type=float)
+            if user_weight is None or user_weight <= 0:
+                flash('Please enter a valid weight (credit points).', 'danger')
+                return redirect(url_for('survey_rank', survey_id=survey.id))
+            participant.user_weight = user_weight
+
+        if survey.require_user_capacity:
+            user_capacity = request.form.get('user_capacity', type=int)
+            if user_capacity is None or user_capacity <= 0:
+                flash('Please enter a valid capacity.', 'danger')
+                return redirect(url_for('survey_rank', survey_id=survey.id))
+            participant.user_capacity = user_capacity
+
+        # Clear existing rankings
+        ItemRanking.query.filter_by(participant_id=participant.id).delete()
+
+        items = survey.items.all()
+
+        if survey.ranking_mode == 'ordinal':
+            # Process ordinal rankings
+            for item in items:
+                rank = request.form.get(f'rank_{item.id}', type=int)
+                if rank:
+                    ranking = ItemRanking(
+                        participant_id=participant.id,
+                        item_id=item.id,
+                        rank=rank
+                    )
+                    db.session.add(ranking)
+        elif survey.ranking_mode in ('budget', 'points'):
+            # Process budget-based rankings (distribute total points)
+            total_assigned = 0
+            for item in items:
+                points = request.form.get(f'points_{item.id}', 0, type=int)
+                total_assigned += points
+                ranking = ItemRanking(
+                    participant_id=participant.id,
+                    item_id=item.id,
+                    points=points
+                )
+                db.session.add(ranking)
+
+            if total_assigned != survey.total_points:
+                db.session.rollback()
+                flash(f'Total points must equal {survey.total_points}. You assigned {total_assigned}.', 'danger')
+                return redirect(url_for('survey_rank', survey_id=survey.id))
+        else:
+            # Process rating mode (score each item independently)
+            for item in items:
+                rating = request.form.get(f'rating_{item.id}', type=int)
+                if rating is not None:
+                    if rating < survey.min_score or rating > survey.max_score:
+                        db.session.rollback()
+                        flash(f'Rating must be between {survey.min_score} and {survey.max_score}.', 'danger')
+                        return redirect(url_for('survey_rank', survey_id=survey.id))
+                    ranking = ItemRanking(
+                        participant_id=participant.id,
+                        item_id=item.id,
+                        rating=rating
+                    )
+                    db.session.add(ranking)
+
+        db.session.commit()
+        flash('Your rankings have been saved!', 'success')
+        return redirect(url_for('survey_rank', survey_id=survey.id))
+
+    # Get current rankings
+    rankings = {r.item_id: r for r in participant.rankings.all()}
+
+    return render_template('survey/rank.html', survey=survey, participant=participant, rankings=rankings)
+
+
+@app.route('/my-surveys')
+@auth_required()
+def my_surveys():
+    """List surveys the current user is participating in."""
+    participations = SurveyParticipant.query.filter_by(user_id=current_user.id).all()
+    return render_template('survey/my_surveys.html', participations=participations)
 
 
 with app.app_context():

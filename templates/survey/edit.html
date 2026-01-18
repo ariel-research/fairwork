@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+
+{% block title %}{{ survey.title }} - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1>{{ survey.title }}</h1>
+        <span class="badge bg-{{ 'success' if survey.is_open else 'danger' }}">
+            {{ 'Open' if survey.is_open else 'Closed' }}
+        </span>
+        <span class="badge bg-{{ 'info' if survey.ranking_mode == 'ordinal' else ('secondary' if survey.ranking_mode in ('budget', 'points') else 'primary') }}">
+            {% if survey.ranking_mode == 'ordinal' %}
+                Ordinal Ranking
+            {% elif survey.ranking_mode in ('budget', 'points') %}
+                Budget ({{ survey.total_points }} points)
+            {% else %}
+                Rating ({{ survey.min_score }}-{{ survey.max_score }})
+            {% endif %}
+        </span>
+    </div>
+    <div>
+        <form method="POST" action="{{ url_for('survey_toggle', survey_id=survey.id) }}" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-{{ 'warning' if survey.is_open else 'success' }}">
+                {{ 'Close Survey' if survey.is_open else 'Open Survey' }}
+            </button>
+        </form>
+        <a href="{{ url_for('survey_list') }}" class="btn btn-outline-secondary">Back to List</a>
+    </div>
+</div>
+
+<!-- Survey Settings -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Survey Settings</h5>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('survey_update', survey_id=survey.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="title" class="form-label">Title</label>
+                    <input type="text" class="form-control" id="title" name="title" value="{{ survey.title }}">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="ranking_mode" class="form-label">Ranking Mode</label>
+                    <select class="form-select" id="ranking_mode" name="ranking_mode" onchange="toggleModeFields()">
+                        <option value="ordinal" {{ 'selected' if survey.ranking_mode == 'ordinal' }}>Ordinal</option>
+                        <option value="budget" {{ 'selected' if survey.ranking_mode in ('budget', 'points') }}>Budget</option>
+                        <option value="rating" {{ 'selected' if survey.ranking_mode == 'rating' }}>Rating</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-3" id="budget-field" style="{{ '' if survey.ranking_mode in ('budget', 'points') else 'display: none;' }}">
+                    <label for="total_points" class="form-label">Total Points</label>
+                    <input type="number" class="form-control" id="total_points" name="total_points" value="{{ survey.total_points }}" min="1">
+                </div>
+                <div class="col-md-3 mb-3" id="rating-field" style="{{ '' if survey.ranking_mode == 'rating' else 'display: none;' }}">
+                    <label class="form-label">Score Range</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control" name="min_score" value="{{ survey.min_score }}" min="0" placeholder="Min">
+                        <span class="input-group-text">to</span>
+                        <input type="number" class="form-control" name="max_score" value="{{ survey.max_score }}" min="1" placeholder="Max">
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="description" class="form-label">Description</label>
+                <textarea class="form-control" id="description" name="description" rows="2">{{ survey.description or '' }}</textarea>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label"><strong>Weights</strong></label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="use_weights" name="use_weights" {{ 'checked' if survey.use_weights }}>
+                        <label class="form-check-label" for="use_weights">
+                            Enable Weights (item weights + user credit points)
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-8 mb-3">
+                    <label class="form-label"><strong>User Requirements</strong></label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="require_user_capacity" name="require_user_capacity" {{ 'checked' if survey.require_user_capacity }}>
+                        <label class="form-check-label" for="require_user_capacity">
+                            Require users to enter their capacity
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Settings</button>
+        </form>
+    </div>
+</div>
+
+<!-- Invite Link -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Invite Link</h5>
+    </div>
+    <div class="card-body">
+        <p>Share this link with participants to invite them to the survey:</p>
+        <div class="input-group">
+            <input type="text" class="form-control" id="invite-link" value="{{ request.url_root }}join/{{ survey.invite_code }}" readonly>
+            <button class="btn btn-outline-primary" type="button" onclick="copyInviteLink()">Copy</button>
+        </div>
+        <div class="form-text">Anyone with this link can join the survey after logging in or registering.</div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Items Section -->
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Items ({{ survey.items.count() }})</h5>
+            </div>
+            <div class="card-body">
+                <!-- Add Item Form -->
+                <form method="POST" action="{{ url_for('survey_add_item', survey_id=survey.id) }}" class="mb-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="row g-2">
+                        <div class="col-md-{% if survey.use_weights %}4{% else %}6{% endif %}">
+                            <input type="text" class="form-control" name="name" placeholder="Item name" required>
+                        </div>
+                        <div class="col-md-{% if survey.use_weights %}3{% else %}4{% endif %}">
+                            <input type="number" class="form-control" name="capacity" placeholder="Capacity" value="1" min="1">
+                        </div>
+                        {% if survey.use_weights %}
+                        <div class="col-md-3">
+                            <input type="number" class="form-control" name="weight" placeholder="Weight" value="1.0" min="0" step="0.1">
+                        </div>
+                        {% endif %}
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-success w-100">Add</button>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <input type="text" class="form-control" name="description" placeholder="Description (optional)">
+                    </div>
+                </form>
+
+                <!-- Items List -->
+                {% if survey.items.count() > 0 %}
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Capacity</th>
+                            {% if survey.use_weights %}
+                            <th>Weight</th>
+                            {% endif %}
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in survey.items %}
+                        <tr>
+                            <td>
+                                {{ item.name }}
+                                {% if item.description %}
+                                <br><small class="text-muted">{{ item.description }}</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ item.capacity }}</td>
+                            {% if survey.use_weights %}
+                            <td>{{ item.weight }}</td>
+                            {% endif %}
+                            <td>
+                                <form method="POST" action="{{ url_for('survey_delete_item', survey_id=survey.id, item_id=item.id) }}" style="display: inline;">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this item?')">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted">No items added yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Participants Section -->
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Participants ({{ survey.participants.count() }})</h5>
+            </div>
+            <div class="card-body">
+                <!-- Add Participant Form -->
+                <form method="POST" action="{{ url_for('survey_add_participant', survey_id=survey.id) }}" class="mb-3">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="input-group">
+                        <select class="form-select" name="user_id" required>
+                            <option value="">Select user to add...</option>
+                            {% for user in users %}
+                                {% if not survey.participants.filter_by(user_id=user.id).first() %}
+                                <option value="{{ user.id }}">{{ user.username }} ({{ user.email }})</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-success">Add</button>
+                    </div>
+                </form>
+
+                <!-- Participants List -->
+                {% if survey.participants.count() > 0 %}
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            {% if survey.use_weights %}
+                            <th>Credit Points</th>
+                            {% endif %}
+                            {% if survey.require_user_capacity %}
+                            <th>Capacity</th>
+                            {% endif %}
+                            <th>Ranked</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for participant in survey.participants %}
+                        <tr>
+                            <td>
+                                {{ participant.get_display_name() }}
+                                {% if participant.is_dummy %}
+                                <span class="badge bg-warning text-dark">Dummy</span>
+                                {% endif %}
+                            </td>
+                            {% if survey.use_weights %}
+                            <td>{{ participant.user_weight or '-' }}</td>
+                            {% endif %}
+                            {% if survey.require_user_capacity %}
+                            <td>{{ participant.user_capacity or '-' }}</td>
+                            {% endif %}
+                            <td>
+                                {% if participant.rankings.count() > 0 %}
+                                <span class="badge bg-success">Yes</span>
+                                {% else %}
+                                <span class="badge bg-secondary">No</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form method="POST" action="{{ url_for('survey_remove_participant', survey_id=survey.id, participant_id=participant.id) }}" style="display: inline;">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Remove this participant?')">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted">No participants yet. Share the invite link or add users manually.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Dummy Users Section -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Dummy Users</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted">Add dummy users with randomly generated preferences for testing or demonstration purposes.</p>
+        <form method="POST" action="{{ url_for('survey_add_dummy_users', survey_id=survey.id) }}" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-auto">
+                <label for="dummy_count" class="form-label">Number of dummy users</label>
+                <input type="number" class="form-control" id="dummy_count" name="count" value="5" min="1" max="100" style="width: 100px;">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-warning">Add Dummy Users</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Run Algorithm Section -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0">Run Allocation Algorithm</h5>
+    </div>
+    <div class="card-body">
+        <p class="text-muted">Run a fair division algorithm on the collected preferences to compute an allocation.</p>
+        <form method="POST" action="{{ url_for('survey_run_algorithm', survey_id=survey.id) }}" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+                <label for="algorithm" class="form-label">Select Algorithm</label>
+                <select class="form-select" id="algorithm" name="algorithm" required>
+                    <option value="">Choose an algorithm...</option>
+                    <optgroup label="Picking Sequence">
+                        <option value="round_robin">Round Robin</option>
+                        <option value="bidirectional_round_robin">Bidirectional Round Robin</option>
+                        <option value="serial_dictatorship">Serial Dictatorship</option>
+                    </optgroup>
+                    <optgroup label="Matching">
+                        <option value="iterated_maximum_matching">Iterated Maximum Matching</option>
+                        <option value="utilitarian_matching">Utilitarian Matching</option>
+                    </optgroup>
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">Run Algorithm</button>
+            </div>
+        </form>
+        {% if survey.allocation_results.count() > 0 %}
+        <hr>
+        <a href="{{ url_for('survey_results', survey_id=survey.id) }}" class="btn btn-outline-primary">
+            View Results ({{ survey.allocation_results.count() }})
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Delete Survey -->
+<div class="card border-danger">
+    <div class="card-header bg-danger text-white">
+        <h5 class="mb-0">Danger Zone</h5>
+    </div>
+    <div class="card-body">
+        <p>Deleting a survey is permanent and cannot be undone. All items, participants, and rankings will be lost.</p>
+        <form method="POST" action="{{ url_for('survey_delete', survey_id=survey.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this survey? This action cannot be undone.')">
+                Delete Survey
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+function copyInviteLink() {
+    const input = document.getElementById('invite-link');
+    input.select();
+    document.execCommand('copy');
+    alert('Invite link copied to clipboard!');
+}
+
+function toggleModeFields() {
+    const mode = document.getElementById('ranking_mode').value;
+    document.getElementById('budget-field').style.display = mode === 'budget' ? '' : 'none';
+    document.getElementById('rating-field').style.display = mode === 'rating' ? '' : 'none';
+}
+</script>
+{% endblock %}

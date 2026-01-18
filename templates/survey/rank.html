@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Rank Items - {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">{{ survey.title }}</h4>
+                {% if survey.description %}
+                <p class="text-muted mb-0 mt-2">{{ survey.description }}</p>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if not survey.is_open %}
+                <div class="alert alert-warning">
+                    This survey is closed. You can view your rankings but cannot make changes.
+                </div>
+                {% endif %}
+
+                {% if survey.items.count() == 0 %}
+                <div class="alert alert-info">
+                    No items have been added to this survey yet. Please check back later.
+                </div>
+                {% else %}
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    {% if survey.use_weights or survey.require_user_capacity %}
+                    <!-- User Weight/Capacity Section -->
+                    <div class="card bg-light mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Your Information</h5>
+                            <div class="row">
+                                {% if survey.use_weights %}
+                                <div class="col-md-6 mb-3">
+                                    <label for="user_weight" class="form-label">Your Credit Points *</label>
+                                    <input type="number"
+                                           class="form-control"
+                                           id="user_weight"
+                                           name="user_weight"
+                                           value="{{ participant.user_weight or '' }}"
+                                           min="0.1"
+                                           step="0.1"
+                                           required
+                                           {{ 'disabled' if not survey.is_open }}>
+                                </div>
+                                {% endif %}
+                                {% if survey.require_user_capacity %}
+                                <div class="col-md-6 mb-3">
+                                    <label for="user_capacity" class="form-label">Your Capacity *</label>
+                                    <input type="number"
+                                           class="form-control"
+                                           id="user_capacity"
+                                           name="user_capacity"
+                                           value="{{ participant.user_capacity or '' }}"
+                                           min="1"
+                                           required
+                                           {{ 'disabled' if not survey.is_open }}>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if survey.ranking_mode == 'ordinal' %}
+                    <!-- Ordinal Ranking -->
+                    <p class="mb-3">Rank the items from 1 (most preferred) to {{ survey.items.count() }} (least preferred):</p>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Description</th>
+                                <th style="width: 100px;">Rank</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in survey.items %}
+                            <tr>
+                                <td><strong>{{ item.name }}</strong></td>
+                                <td>{{ item.description or '-' }}</td>
+                                <td>
+                                    <select class="form-select" name="rank_{{ item.id }}" {{ 'disabled' if not survey.is_open }}>
+                                        <option value="">-</option>
+                                        {% for i in range(1, survey.items.count() + 1) %}
+                                        <option value="{{ i }}" {{ 'selected' if rankings.get(item.id) and rankings[item.id].rank == i }}>{{ i }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                    {% elif survey.ranking_mode in ('budget', 'points') %}
+                    <!-- Budget-based Ranking -->
+                    <p class="mb-3">
+                        Distribute <strong>{{ survey.total_points }}</strong> points among the items.
+                        More points = higher preference.
+                    </p>
+                    <div class="alert alert-info">
+                        <strong>Points remaining: <span id="points-remaining">{{ survey.total_points }}</span></strong>
+                    </div>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Description</th>
+                                <th style="width: 120px;">Points</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in survey.items %}
+                            <tr>
+                                <td><strong>{{ item.name }}</strong></td>
+                                <td>{{ item.description or '-' }}</td>
+                                <td>
+                                    <input type="number"
+                                           class="form-control points-input"
+                                           name="points_{{ item.id }}"
+                                           value="{{ rankings.get(item.id).points if rankings.get(item.id) else 0 }}"
+                                           min="0"
+                                           max="{{ survey.total_points }}"
+                                           {{ 'disabled' if not survey.is_open }}
+                                           onchange="updatePointsRemaining()">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
+                    {% else %}
+                    <!-- Rating Mode -->
+                    <p class="mb-3">
+                        Score each item from <strong>{{ survey.min_score }}</strong> to <strong>{{ survey.max_score }}</strong>.
+                        Higher scores = higher preference.
+                    </p>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Description</th>
+                                <th style="width: 120px;">Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in survey.items %}
+                            <tr>
+                                <td><strong>{{ item.name }}</strong></td>
+                                <td>{{ item.description or '-' }}</td>
+                                <td>
+                                    <input type="number"
+                                           class="form-control"
+                                           name="rating_{{ item.id }}"
+                                           value="{{ rankings.get(item.id).rating if rankings.get(item.id) and rankings.get(item.id).rating is not none else '' }}"
+                                           min="{{ survey.min_score }}"
+                                           max="{{ survey.max_score }}"
+                                           {{ 'disabled' if not survey.is_open }}
+                                           required>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% endif %}
+
+                    {% if survey.is_open %}
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg">Save Rankings</button>
+                    </div>
+                    {% endif %}
+                </form>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <a href="{{ url_for('my_surveys') }}" class="btn btn-outline-secondary">Back to My Surveys</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if survey.ranking_mode in ('budget', 'points') %}
+<script>
+function updatePointsRemaining() {
+    const totalPoints = {{ survey.total_points }};
+    const inputs = document.querySelectorAll('.points-input');
+    let used = 0;
+    inputs.forEach(input => {
+        used += parseInt(input.value) || 0;
+    });
+    const remaining = totalPoints - used;
+    const display = document.getElementById('points-remaining');
+    display.textContent = remaining;
+    display.parentElement.classList.remove('alert-info', 'alert-success', 'alert-danger');
+    if (remaining === 0) {
+        display.parentElement.classList.add('alert-success');
+    } else if (remaining < 0) {
+        display.parentElement.classList.add('alert-danger');
+    } else {
+        display.parentElement.classList.add('alert-info');
+    }
+}
+// Initialize on page load
+updatePointsRemaining();
+</script>
+{% endif %}
+{% endblock %}

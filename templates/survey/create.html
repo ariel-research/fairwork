@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Create Survey - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="mb-0">Create New Survey</h4>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="mb-3">
+                        <label for="title" class="form-label">Survey Title *</label>
+                        <input type="text" class="form-control" id="title" name="title" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="3"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Ranking Mode *</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="ranking_mode" id="ordinal" value="ordinal" checked onchange="toggleModeFields()">
+                            <label class="form-check-label" for="ordinal">
+                                <strong>Ordinal</strong> - Participants rank items as 1st, 2nd, 3rd, etc.
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="ranking_mode" id="budget" value="budget" onchange="toggleModeFields()">
+                            <label class="form-check-label" for="budget">
+                                <strong>Budget</strong> - Participants distribute a fixed number of points among items
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="ranking_mode" id="rating" value="rating" onchange="toggleModeFields()">
+                            <label class="form-check-label" for="rating">
+                                <strong>Rating</strong> - Participants score each item independently within a range
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3" id="budget-field" style="display: none;">
+                        <label for="total_points" class="form-label">Total Points to Distribute</label>
+                        <input type="number" class="form-control" id="total_points" name="total_points" value="100" min="1">
+                        <div class="form-text">Participants must distribute exactly this many points among all items.</div>
+                    </div>
+
+                    <div class="mb-3" id="rating-field" style="display: none;">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <label for="min_score" class="form-label">Minimum Score</label>
+                                <input type="number" class="form-control" id="min_score" name="min_score" value="1" min="0">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="max_score" class="form-label">Maximum Score</label>
+                                <input type="number" class="form-control" id="max_score" name="max_score" value="10" min="1">
+                            </div>
+                        </div>
+                        <div class="form-text">Each item will be scored independently within this range.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Weights</strong></label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="use_weights" name="use_weights">
+                            <label class="form-check-label" for="use_weights">
+                                Enable Weights - Use item weights and user credit points
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label"><strong>User Requirements</strong></label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="require_user_capacity" name="require_user_capacity">
+                            <label class="form-check-label" for="require_user_capacity">
+                                Require users to enter their capacity
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">Create Survey</button>
+                        <a href="{{ url_for('survey_list') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleModeFields() {
+    const budgetMode = document.getElementById('budget').checked;
+    const ratingMode = document.getElementById('rating').checked;
+    document.getElementById('budget-field').style.display = budgetMode ? 'block' : 'none';
+    document.getElementById('rating-field').style.display = ratingMode ? 'block' : 'none';
+}
+</script>
+{% endblock %}

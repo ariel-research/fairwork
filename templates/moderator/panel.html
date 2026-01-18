@@ -6,43 +6,89 @@
 <div class="row mb-4">
     <div class="col">
         <h1>Moderator Panel</h1>
-        <p class="text-muted">Tools and features for moderators.</p>
+        <p class="text-muted">Create and manage surveys for fair division.</p>
     </div>
 </div>
 
 <div class="row">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">Your Permissions</h5>
-            </div>
-            <div class="card-body">
-                <p>As a moderator, you have access to:</p>
-                <ul>
-                    <li>View user activity</li>
-                    <li>Moderate content</li>
-                    <li>Access moderator tools</li>
-                </ul>
-                <p class="text-muted mb-0">
-                    Your roles:
-                    {% for role in current_user.roles %}
-                        <span class="badge bg-primary">{{ role.name }}</span>
-                    {% endfor %}
-                </p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card">
+    <!-- Quick Actions -->
+    <div class="col-md-4">
+        <div class="card mb-4">
             <div class="card-header">
                 <h5 class="mb-0">Quick Actions</h5>
             </div>
             <div class="card-body">
                 <div class="d-grid gap-2">
-                    <button class="btn btn-outline-primary" disabled>View Reports (Coming Soon)</button>
-                    <button class="btn btn-outline-primary" disabled>Content Moderation (Coming Soon)</button>
-                    <button class="btn btn-outline-primary" disabled>Activity Log (Coming Soon)</button>
+                    <a href="{{ url_for('survey_create') }}" class="btn btn-primary">Create New Survey</a>
+                    <a href="{{ url_for('survey_list') }}" class="btn btn-outline-primary">View All Surveys</a>
                 </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Your Permissions</h5>
+            </div>
+            <div class="card-body">
+                <p>As a moderator, you can:</p>
+                <ul class="mb-0">
+                    <li>Create surveys with items</li>
+                    <li>Invite users via link</li>
+                    <li>Add existing users to surveys</li>
+                    <li>Configure ranking modes</li>
+                    <li>Open/close surveys</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Surveys -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Your Surveys</h5>
+                <span class="badge bg-primary">{{ surveys|length }}</span>
+            </div>
+            <div class="card-body">
+                {% if surveys %}
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Items</th>
+                                <th>Participants</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for survey in surveys %}
+                            <tr>
+                                <td>{{ survey.title }}</td>
+                                <td>{{ survey.items.count() }}</td>
+                                <td>{{ survey.participants.count() }}</td>
+                                <td>
+                                    {% if survey.is_open %}
+                                    <span class="badge bg-success">Open</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Closed</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('survey_edit', survey_id=survey.id) }}" class="btn btn-sm btn-outline-primary">Manage</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <p class="text-muted mb-3">You haven't created any surveys yet.</p>
+                    <a href="{{ url_for('survey_create') }}" class="btn btn-primary">Create Your First Survey</a>
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>

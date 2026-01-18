@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}My Surveys - Fair Division Algorithms{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">My Surveys</h1>
+
+{% if participations %}
+<div class="row">
+    {% for participation in participations %}
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">{{ participation.survey.title }}</h5>
+                {% if participation.survey.is_open %}
+                <span class="badge bg-success">Open</span>
+                {% else %}
+                <span class="badge bg-secondary">Closed</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if participation.survey.description %}
+                <p class="card-text">{{ participation.survey.description }}</p>
+                {% endif %}
+                <ul class="list-unstyled">
+                    <li><strong>Items:</strong> {{ participation.survey.items.count() }}</li>
+                    <li><strong>Ranking Mode:</strong>
+                        {% if participation.survey.ranking_mode == 'ordinal' %}
+                        Ordinal (1st, 2nd, 3rd...)
+                        {% else %}
+                        Points
+                        {% endif %}
+                    </li>
+                    <li><strong>Joined:</strong> {{ participation.joined_at.strftime('%Y-%m-%d') }}</li>
+                    <li><strong>Your Ranking:</strong>
+                        {% if participation.rankings.count() > 0 %}
+                        <span class="badge bg-success">Submitted</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">Not yet</span>
+                        {% endif %}
+                    </li>
+                </ul>
+            </div>
+            <div class="card-footer">
+                <a href="{{ url_for('survey_rank', survey_id=participation.survey.id) }}" class="btn btn-primary">
+                    {% if participation.rankings.count() > 0 %}
+                    View/Edit Ranking
+                    {% else %}
+                    Submit Ranking
+                    {% endif %}
+                </a>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">
+    <h5>No surveys yet</h5>
+    <p class="mb-0">You haven't been added to any surveys. When someone invites you to a survey, it will appear here.</p>
+</div>
+{% endif %}
+{% endblock %}
